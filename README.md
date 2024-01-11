@@ -29,9 +29,7 @@ Ensure you have the following installed on your development machine:
 
 6. `cd spring-ccloud-maven`
 
-7. Open pom.xml. At line 8, update the version value from 3.2.1 to 2.6.5
-
-8. In this step we add logic to produce messages. We will be using a couple of spring project specific and third party libraries to produce random quotes and to send these quotes every second. Create a new java class, Producer.java under src/main folder in io.confluent.developer.springccloud package. The location should look like in the screenshot below 
+7. In this step we add logic to produce messages. We will be using a couple of spring project specific and third party libraries to produce random quotes and to send these quotes every second. Create a new java class, Producer.java under src/main folder in io.confluent.developer.springccloud package. The location should look like in the screenshot below 
 ![image](./images/producer_location.png)
 
 Copy the below code to Producer.java
@@ -73,4 +71,23 @@ public class Producer {
 }
 ```
 
-9. 
+8. Open application.properties under src/main/resources. Add the below content to it.
+```
+# Kafka
+spring.kafka.properties.sasl.mechanism=PLAIN
+spring.kafka.bootstrap-servers=<TOBEFILLED>
+spring.kafka.properties.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username='<TOBEFILLED>' password='<TOBEFILLED>';
+spring.kafka.properties.security.protocol=SASL_SSL
+
+spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.IntegerSerializer
+spring.kafka.producer.value-serializer=org.apache.kafka.common.serialization.StringSerializer
+spring.kafka.producer.client-id=spring-boot-producer
+
+spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.LongDeserializer
+```
+The values for <TOBEFILLED> will be provided by the workshop instructor/moderator
+
+9. Being in the root folder in spring-ccloud-maven, run `mvn package`
+
+10. If you do not see any errors in the console, then random quotes are successfully published to Kafka cluster.
