@@ -91,3 +91,5 @@ The values for <TOBEFILLED> will be provided by the workshop instructor/moderato
 9. Being in the root folder in spring-ccloud-maven, run `mvn package`
 
 10. If you do not see any errors in the console, then random quotes are successfully published to Kafka cluster.
+
+11. Messages should appear in the relevant topic. Open CClould UI, go to the relevant cluster and click on the corresponding topic.  - Need to check with Kishore if they can access UI.
