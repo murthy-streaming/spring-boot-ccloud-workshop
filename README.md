@@ -119,9 +119,9 @@ public class Producer {
 
 2. Being in the root folder in spring-ccloud-maven, run `mvn package`
 
-3. If you do not see any errors in the console, then random quotes are successfully published to Kafka cluster. If you see any errors in the console, please check with the instructor/moderator.
+3. If you see messages on the console with the prefix `Sending message: ` followed by a random quote, then the data was successfully published to kafka topics. If you see any errors in the console, please check with the instructor/moderator.
 
-4. Messages should appear in the relevant topic. Open CClould UI, go to the relevant cluster and click on the corresponding topic.  - Need to check with Kishore if they can access UI.
+4. Messages should appear in the relevant topic. Open CClould UI, go to the relevant cluster and click on the corresponding topic. Your instructor/moderator will be able to help with this check.
 
 5. Once you validate that the messages are successfully produced you can hit ctrl+c to exit out of the maven process.
 
