@@ -4,7 +4,9 @@ This purpose of this repo is to demostrate a spring boot application interacting
 
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
-- [Instructions](#instructions)
+  - [Project Setup](#project-setup)
+- [Produce Messages](#produce-messages)
+- [Consume Messages](#consume-messages)
 
 ## Getting Started
 
@@ -15,7 +17,7 @@ Ensure you have the following installed on your development machine:
 - [Java Development Kit (JDK) 17](https://openjdk.java.net/)
 - [Apache Maven](https://maven.apache.org/)
 
-## Instructions
+### Project Setup
 
 1. Open https://start.spring.io/
 
@@ -29,46 +31,13 @@ Ensure you have the following installed on your development machine:
 
 6. `cd spring-ccloud-maven`
 
-7. In this step we add logic to produce messages. We will be using a couple of spring project specific and third party libraries to produce random quotes and to send these quotes every second. Create a new java class, Producer.java under src/main folder in io.confluent.developer.springccloud package. The location should look like in the screenshot below 
-![image](./images/producer_location.png)
-
-Copy the below code to Producer.java
-
-```java
-package io.confluent.developer.springccloud;
-
-import java.time.Duration;
-import java.util.stream.Stream;
-
-import org.springframework.boot.context.event.ApplicationStartedEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.stereotype.Component;
-
-import com.github.javafaker.Faker;
-
-import lombok.RequiredArgsConstructor;
-import reactor.core.publisher.Flux;
-
-@RequiredArgsConstructor
-@Component
-public class Producer {
-    private final KafkaTemplate<Integer, String> template;
-
-	Faker faker;
-
-	@EventListener(ApplicationStartedEvent.class)
-	public void generate() {
-
-		faker = Faker.instance();
-		final Flux<Long> interval = Flux.interval(Duration.ofMillis(1_000));
-
-		final Flux<String> quotes = Flux.fromStream(Stream.generate(() -> faker.hobbit().quote()));
-
-		Flux.zip(interval, quotes)
-				.map(it -> template.send("topic_name", faker.random().nextInt(42), it.getT2())).blockLast();
-	}
-}
+7. Open pom.xml and add the below dependency to the `<dependencies>` section. This library is used to send random quotes as messages to kafka. More info about this library can be found at https://github.com/DiUS/java-faker
+```
+    <dependency>
+        <groupId>com.github.javafaker</groupId>
+        <artifactId>javafaker</artifactId>
+        <version>1.0.2</version>
+    </dependency>
 ```
 
 8. Open application.properties under src/main/resources. Add the below content to it.
@@ -83,13 +52,101 @@ spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.Integ
 spring.kafka.producer.value-serializer=org.apache.kafka.common.serialization.StringSerializer
 spring.kafka.producer.client-id=spring-boot-producer
 
-spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
-spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.LongDeserializer
+spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.IntegerDeserializer
+spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer
 ```
 The values for <TOBEFILLED> will be provided by the workshop instructor/moderator
 
-9. Being in the root folder in spring-ccloud-maven, run `mvn package`
+## Produce Messages
 
-10. If you do not see any errors in the console, then random quotes are successfully published to Kafka cluster.
+In this module we add logic to produce messages to a kafka topic. 
 
-11. Messages should appear in the relevant topic. Open CClould UI, go to the relevant cluster and click on the corresponding topic.  - Need to check with Kishore if they can access UI.
+1. Create a new java class, Producer.java under src/main folder in io.confluent.developer.springccloud package. The location should look like in the screenshot below 
+
+![image](./images/producer_location.png)
+
+Copy the below code to Producer.java
+
+```java
+package io.confluent.developer.springccloud;
+
+import java.time.Duration;
+import java.util.stream.Stream;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+
+import com.github.javafaker.Faker;
+
+import lombok.RequiredArgsConstructor;
+import reactor.core.publisher.Flux;
+
+@RequiredArgsConstructor
+@Component
+public class Producer {
+
+    @Value("${topic.name}")
+    private String topic;
+
+    private final KafkaTemplate<Integer, String> template;
+
+	Faker faker;
+
+	@EventListener(ApplicationStartedEvent.class)
+	public void generate() {
+
+		faker = Faker.instance();
+		final Flux<Long> interval = Flux.interval(Duration.ofMillis(1_000));
+
+		final Flux<String> quotes = Flux.fromStream(Stream.generate(() -> faker.hobbit().quote()));
+
+		Flux.zip(interval, quotes)
+				.map(it -> template.send(topic, faker.random().nextInt(42), it.getT2())).blockLast();
+	}
+}
+```
+
+2. Being in the root folder in spring-ccloud-maven, run `mvn package`
+
+3. If you do not see any errors in the console, then random quotes are successfully published to Kafka cluster. If you see any errors in the console, please check with the instructor/moderator.
+
+4. Messages should appear in the relevant topic. Open CClould UI, go to the relevant cluster and click on the corresponding topic.  - Need to check with Kishore if they can access UI.
+
+5. Once you validate that the messages are successfully produced you can hit ctrl+c to exit out of the maven process.
+
+## Consume Messages
+
+In this module we add logic to consume messages from a kafka topic. 
+
+1. Create a new java class, Consumer.java under src/main folder in io.confluent.developer.springccloud package. The location should look like in the screenshot below 
+
+![image](./images/consumer_location.png)
+
+Copy the below code to Consumer.java
+
+```java
+package io.confluent.developer.springccloud;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class Consumer {
+    
+    @KafkaListener(topics = "${topic.name}", groupId = "${spring.kafka.consumer.group-id}")
+    public void consume(ConsumerRecord<Integer, String> record) {
+        System.out.println("received = " + record.value() + " with key " + record.key());
+      }
+}
+```
+
+2. Being in the root folder in spring-ccloud-maven, run `mvn package`
+
+3. If everything is succesful, you should see messages in the console with the term `received = `. If you do not see this or see any errors, please check with your instructor/moderator.
+
+4. Once you validate that the messages are successfully consumed you can hit ctrl+c to exit out of the maven process.
+
