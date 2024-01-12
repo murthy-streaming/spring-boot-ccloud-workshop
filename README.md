@@ -54,6 +54,10 @@ spring.kafka.producer.client-id=spring-boot-producer
 
 spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.IntegerDeserializer
 spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+
+# User defined
+topic.name=users
+spring.kafka.consumer.group-id=my-group
 ```
 The values for <TOBEFILLED> will be provided by the workshop instructor/moderator
 
