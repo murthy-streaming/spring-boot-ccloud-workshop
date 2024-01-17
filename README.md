@@ -9,7 +9,7 @@ This purpose of this repo is to demostrate a spring boot application interacting
 - [Process Messages](#process-messages)
 - [Consume Messages](#consume-messages)
 - [JSON Serialization](#json-serialization)
-- [Transactions](#transactions-support)
+- [Transactions Support](#transactions-support)
 
 ## Getting Started
 
@@ -373,7 +373,7 @@ public class JsonConsumer {
 
 8. Once you validate that the messages are successfully consumed you can hit ctrl+c to exit out of the maven process.
 
-## Transactions
+## Transactions Support
 
 In this module we add transaction support to the Producer and Consumer code that was created before.
 
