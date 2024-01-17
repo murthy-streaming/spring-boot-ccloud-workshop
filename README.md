@@ -6,6 +6,7 @@ This purpose of this repo is to demostrate a spring boot application interacting
   - [Prerequisites](#prerequisites)
   - [Project Setup](#project-setup)
 - [Produce Messages](#produce-messages)
+- [Process Messages](#process-messages)
 - [Consume Messages](#consume-messages)
 
 ## Getting Started
@@ -19,7 +20,7 @@ Ensure you have the following installed on your development machine:
 
 ### Project Setup
 
-1. Open https://start.spring.io/
+1. Open https://start.spring.io/. If you cannot access this website as part of your Organization policy, download the package spring-ccloud-maven.zip in this folder and skip to step 5.
 
 2. Choose options based on the screenshot listed here ![image](./images/project_settings.png). We recommend to use the values mentioned in the screenshot as it makes it easy to follow the rest of the instructions.
 
@@ -48,15 +49,18 @@ spring.kafka.bootstrap-servers=<TOBEFILLED>
 spring.kafka.properties.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username='<TOBEFILLED>' password='<TOBEFILLED>';
 spring.kafka.properties.security.protocol=SASL_SSL
 
+#Producer Properties
 spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.IntegerSerializer
 spring.kafka.producer.value-serializer=org.apache.kafka.common.serialization.StringSerializer
 spring.kafka.producer.client-id=spring-boot-producer
 
-spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.IntegerDeserializer
-spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+#Consumer Properties
+spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.LongDeserializer
 
 # User defined
 topic.name=users
+json-topic.name=users-json
 spring.kafka.consumer.group-id=my-group
 ```
 The values for <TOBEFILLED> will be provided by the workshop instructor/moderator
@@ -125,6 +129,78 @@ public class Producer {
 
 5. Once you validate that the messages are successfully produced you can hit ctrl+c to exit out of the maven process.
 
+## Process Messages
+
+In this module we are going to use KStream to process the messages that were published as part of Producer in previous module.
+
+1. Create a new java class, Processor.java under src/main folder in io.confluent.developer.springccloud package.
+
+Copy the below code to Processor.java
+
+```java
+package io.confluent.developer.springccloud;
+
+import java.util.Arrays;
+
+import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.Grouped;
+import org.apache.kafka.streams.kstream.KStream;
+import org.apache.kafka.streams.kstream.KTable;
+import org.apache.kafka.streams.kstream.Materialized;
+import org.apache.kafka.streams.kstream.Produced;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+@Component
+public class Processor {
+
+    @Value("${topic.name}")
+    private String topic;
+    
+    @Autowired
+    public void process(StreamsBuilder builder) {
+
+        // Serializers/deserializers (serde) for String and Long types
+        final Serde<Integer> integerSerde = Serdes.Integer();
+        final Serde<String> stringSerde = Serdes.String();
+        final Serde<Long> longSerde = Serdes.Long();
+
+        // Construct a `KStream` from the input topic "streams-plaintext-input", where
+        // message values
+        // represent lines of text (for the sake of this example, we ignore whatever may
+        // be stored
+        // in the message keys).
+        KStream<Integer, String> textLines = builder
+                .stream(topic, Consumed.with(integerSerde, stringSerde));
+
+        KTable<String, Long> wordCounts = textLines
+                // Split each text line, by whitespace, into words. The text lines are the
+                // message
+                // values, i.e. we can ignore whatever data is in the message keys and thus
+                // invoke
+                // `flatMapValues` instead of the more generic `flatMap`.
+                .flatMapValues(value -> Arrays.asList(value.toLowerCase().split("\\W+")))
+                // We use `groupBy` to ensure the words are available as message keys
+                .groupBy((key, value) -> value, Grouped.with(stringSerde, stringSerde))
+                // Count the occurrences of each word (message key).
+                .count(Materialized.as("counts"));
+
+        // Convert the `KTable<String, Long>` into a `KStream<String, Long>` and write
+        // to the output topic.
+        wordCounts.toStream().to("streams-wordcount-output", Produced.with(stringSerde, longSerde));
+
+    }
+}
+```
+
+2. Being in the root folder in spring-ccloud-maven, run `mvn package`
+
+3. If everything is succesful, you should see messages being published in streams-wordcount-output topic. If you cannot access UI, take help from your instructor/moderator. If you do not see this or see any errors, please check with your instructor/moderator.
+
 ## Consume Messages
 
 In this module we add logic to consume messages from a kafka topic. 
@@ -145,10 +221,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class Consumer {
     
-    @KafkaListener(topics = "${topic.name}", groupId = "${spring.kafka.consumer.group-id}")
-    public void consume(ConsumerRecord<Integer, String> record) {
+    @KafkaListener(topics = "streams-wordcount-output", groupId = "${spring.kafka.consumer.group-id}")
+    public void consume(ConsumerRecord<String, Long> record) {
         System.out.println("received = " + record.value() + " with key " + record.key());
-      }
+    }
 }
 ```
 
