@@ -8,6 +8,8 @@ This purpose of this repo is to demostrate a spring boot application interacting
 - [Produce Messages](#produce-messages)
 - [Process Messages](#process-messages)
 - [Consume Messages](#consume-messages)
+- [JSON Serialization](#json-serialization)
+- [Transactions](#transactions-support)
 
 ## Getting Started
 
@@ -59,8 +61,8 @@ spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.Str
 spring.kafka.consumer.value-deserializer=org.apache.kafka.common.serialization.LongDeserializer
 
 # User defined
-topic.name=users
-json-topic.name=users-json
+topic.name=quotes
+json-topic.name=quotes-json
 spring.kafka.consumer.group-id=my-group
 ```
 The values for <TOBEFILLED> will be provided by the workshop instructor/moderator
@@ -234,3 +236,215 @@ public class Consumer {
 
 4. Once you validate that the messages are successfully consumed you can hit ctrl+c to exit out of the maven process.
 
+
+## JSON Serialization
+In this module we learn how to produce and consume messages in JSON format using JSON Serializers/De-Serializers
+
+1. Create a new class Quote.java under src/main folder in io.confluent.developer.springccloud package. 
+
+Copy the below code to Quote.java
+
+```java
+package io.confluent.developer.springccloud;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public class Quote {
+    @JsonProperty
+    public String quote;
+
+    public Quote(String quote) {
+        this.quote = quote;
+    }
+}
+```
+
+2. Update pom.xml file to add JSON (De)Serializer related dependency and repository
+
+In pom.xml at line 50, add a new dependency
+```
+<dependency>
+    <groupId>io.confluent</groupId>
+    <artifactId>kafka-json-serializer</artifactId>
+    <version>7.5.1</version>
+</dependency>
+```
+
+In pom.xml at line 110, add Confluent maven repository
+```
+<repositories>
+    <repository>
+        <id>confluent</id>
+        <url>https://packages.confluent.io/maven/</url>
+    </repository>
+</repositories>
+```
+
+The line numbers listed above will only be applicable if you used the provided files without modifications. If you made any changes outside of these instructions, the numbers may not be aligned. Please make the above changes appropriately in the relevant sections.
+
+3. Update the application.properties file to use JSON (De)Serializers
+
+Update spring.kafka.producer.value-serializer at line 10 from org.apache.kafka.common.serialization.StringSerializer to io.confluent.kafka.serializers.KafkaJsonSerializer
+
+Update spring.kafka.consumer.value-deserializer from org.apache.kafka.common.serialization.LongDeserializer to io.confluent.kafka.serializers.KafkaJsonDeserializer
+
+
+4. Create a new class JsonProducer.java under src/main folder in io.confluent.developer.springccloud package. 
+
+Copy the below code to JsonProducer.java
+
+```java
+package io.confluent.developer.springccloud;
+
+import java.time.Duration;
+import java.util.stream.Stream;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
+import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+
+import com.github.javafaker.Faker;
+
+import lombok.RequiredArgsConstructor;
+import reactor.core.publisher.Flux;
+
+@RequiredArgsConstructor
+@Component
+public class JsonProducer {
+
+    @Value("${json-topic.name}")
+    private String topic;
+
+    private final KafkaTemplate<Integer, Quote> template;
+
+    Faker faker;
+
+    @Bean
+	NewTopic hobbitAvro() {
+		return TopicBuilder.name(topic).partitions(6).replicas(3).build();
+	}
+
+    // @EventListener(ApplicationStartedEvent.class)
+    public void generate() {
+
+        faker = Faker.instance();
+        final Flux<Long> interval = Flux.interval(Duration.ofMillis(1_000));
+
+        final Flux<String> quotes = Flux.fromStream(Stream.generate(() -> faker.hobbit().quote()));
+
+        Flux.zip(interval, quotes)
+                .map(it -> {
+                    System.out.println("Sending message: " + it.getT2());
+                    return template.send(topic, faker.random().nextInt(42), new Quote(it.getT2()));
+                })
+                .blockLast();
+    }
+}
+```
+
+5. . Create a new class JsonConsumer.java under src/main folder in io.confluent.developer.springccloud package. 
+
+Copy the below code to JsonConsumer.java
+
+```java
+package io.confluent.developer.springccloud;
+
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class JsonConsumer {
+    @KafkaListener(topics = "${json-topic.name}", groupId = "${spring.kafka.consumer.group-id}")
+    public void consume(ConsumerRecord<Integer, Quote> record) {
+        System.out.println("received json = " + record.value() + " with key " + record.key());
+      }
+}
+```
+
+6. Being in the root folder in spring-ccloud-maven, run `mvn package`
+
+7. If everything is succesful, you should see messages in the console with the term `received json = `. If you do not see this or see any errors, please check with your instructor/moderator.
+
+8. Once you validate that the messages are successfully consumed you can hit ctrl+c to exit out of the maven process.
+
+## Transactions
+
+In this module we add transaction support to the Producer and Consumer code that was created before.
+
+1. Add the following property in application.properties file for the Producer section at line 11.
+```spring.kafka.producer.transaction-id-prefix=tx-```
+
+2. Update Producer.java with 2 additional annotations, @EnableTransactionManagement at class level and @Transactional at the method level. The updated class should look like this.
+
+```java
+package io.confluent.developer.springccloud;
+
+import java.time.Duration;
+import java.util.stream.Stream;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.event.EventListener;
+import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.github.javafaker.Faker;
+
+import lombok.RequiredArgsConstructor;
+import reactor.core.publisher.Flux;
+
+@RequiredArgsConstructor
+@Component
+@EnableTransactionManagement
+public class Producer {
+
+    @Value("${topic.name}")
+    private String topic;
+
+    private final KafkaTemplate<Integer, String> template;
+
+    Faker faker;
+
+    @Bean
+    NewTopic counts() {
+        return TopicBuilder.name("streams-wordcount-output").partitions(6).replicas(3).build();
+    }
+
+    @EventListener(ApplicationStartedEvent.class)
+    @Transactional
+    public void generate() {
+
+        faker = Faker.instance();
+        final Flux<Long> interval = Flux.interval(Duration.ofMillis(1_000));
+
+        final Flux<String> quotes = Flux.fromStream(Stream.generate(() -> faker.hobbit().quote()));
+
+        Flux.zip(interval, quotes)
+                .map(it -> {
+                    System.out.println("Sending message: " + it.getT2());
+                    return template.send(topic, faker.random().nextInt(42), it.getT2());
+                })
+                .blockLast();
+    }
+}
+```
+
+3. Add the following property in application.properties in the Consumer section
+spring.kafka.consumer.properties.isolation.level=read_committed
+
+4. Being in the root folder in spring-ccloud-maven, run `mvn package`
+
+5. If everything is succesful, you should see messages in the console with the term `received = `. If you do not see this or see any errors, please check with your instructor/moderator.
+
+6. Once you validate that the messages are successfully consumed you can hit ctrl+c to exit out of the maven process.
