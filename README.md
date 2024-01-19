@@ -83,9 +83,12 @@ package io.confluent.developer.springccloud;
 import java.time.Duration;
 import java.util.stream.Stream;
 
+import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationStartedEvent;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.event.EventListener;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -98,38 +101,35 @@ import reactor.core.publisher.Flux;
 @Component
 public class Producer {
 
-    @Value("${topic.name}")
-    private String topic;
-
     private final KafkaTemplate<Integer, String> template;
 
-	Faker faker;
+    Faker faker;
 
-	@EventListener(ApplicationStartedEvent.class)
-	public void generate() {
+    @Bean
+    NewTopic quotes() {
+        return TopicBuilder.name("quotes").partitions(6).replicas(3).build();
+    }
 
-		faker = Faker.instance();
-		final Flux<Long> interval = Flux.interval(Duration.ofMillis(1_000));
+    @EventListener(ApplicationStartedEvent.class)
+    public void generate() {
 
-		final Flux<String> quotes = Flux.fromStream(Stream.generate(() -> faker.hobbit().quote()));
+        String quote;
+        faker = Faker.instance();
 
-		Flux.zip(interval, quotes)
-                .map(it -> {
-                    System.out.println("Sending message: " + it.getT2());
-                    return template.send(topic, faker.random().nextInt(42), it.getT2());
-                })
-                .blockLast();
-	}
+        quote = faker.hobbit().quote();
+        System.out.printf("Sending quote: %s %n", quote);
+        template.send("quotes", faker.random().nextInt(42), quote);
+
+    }
 }
+
 ```
 
 2. Being in the root folder in spring-ccloud-maven, run `mvn package`
 
-3. If you see messages on the console with the prefix `Sending message: ` followed by a random quote, then the data was successfully published to kafka topics. If you see any errors in the console, please check with the instructor/moderator.
+3. If you see messages on the console with the prefix `Sending quote: ` followed by a random quote, then the data was successfully published to kafka topics. If you see any errors in the console, please check with the instructor/moderator.
 
 4. Messages should appear in the relevant topic. Open CClould UI, go to the relevant cluster and click on the corresponding topic. Your instructor/moderator will be able to help with this check.
-
-5. Once you validate that the messages are successfully produced you can hit ctrl+c to exit out of the maven process.
 
 ## Process Messages
 
@@ -144,6 +144,7 @@ package io.confluent.developer.springccloud;
 
 import java.util.Arrays;
 
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -153,15 +154,25 @@ import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
+import org.apache.kafka.streams.kstream.ValueMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.stereotype.Component;
 
 @Component
 public class Processor {
 
-    @Value("${topic.name}")
-    private String topic;
+    @Bean
+    NewTopic quotesWordCount() {
+        return TopicBuilder.name("quotes-wordcount-output").partitions(6).replicas(3).build();
+    }
+
+    @Bean
+    NewTopic quotesUpperCase() {
+        return TopicBuilder.name("quotes-upper-case").partitions(6).replicas(3).build();
+    }
     
     @Autowired
     public void process(StreamsBuilder builder) {
@@ -171,13 +182,16 @@ public class Processor {
         final Serde<String> stringSerde = Serdes.String();
         final Serde<Long> longSerde = Serdes.Long();
 
-        // Construct a `KStream` from the input topic "streams-plaintext-input", where
+        // Construct a `KStream` from the input topic, where
         // message values
         // represent lines of text (for the sake of this example, we ignore whatever may
         // be stored
         // in the message keys).
         KStream<Integer, String> textLines = builder
-                .stream(topic, Consumed.with(integerSerde, stringSerde));
+                .stream("quotes", Consumed.with(integerSerde, stringSerde));
+
+        KStream<Integer, String> upperCased = textLines.mapValues((ValueMapper<String, String>) String::toUpperCase);
+        upperCased.to("quotes-upper-case", Produced.with(integerSerde, stringSerde));
 
         KTable<String, Long> wordCounts = textLines
                 // Split each text line, by whitespace, into words. The text lines are the
@@ -193,7 +207,7 @@ public class Processor {
 
         // Convert the `KTable<String, Long>` into a `KStream<String, Long>` and write
         // to the output topic.
-        wordCounts.toStream().to("streams-wordcount-output", Produced.with(stringSerde, longSerde));
+        wordCounts.toStream().to("quotes-wordcount-output", Produced.with(stringSerde, longSerde));
 
     }
 }
@@ -201,7 +215,7 @@ public class Processor {
 
 2. Being in the root folder in spring-ccloud-maven, run `mvn package`
 
-3. If everything is succesful, you should see messages being published in streams-wordcount-output topic. If you cannot access UI, take help from your instructor/moderator. If you do not see this or see any errors, please check with your instructor/moderator.
+3. If everything is succesful, you should see messages being published in quotes-upper-case and quotes-wordcount-output topics. If you cannot access UI, take help from your instructor/moderator. If you do not see this or see any errors, please check with your instructor/moderator.
 
 ## Consume Messages
 
@@ -222,12 +236,13 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class Consumer {
-    
-    @KafkaListener(topics = "streams-wordcount-output", groupId = "${spring.kafka.consumer.group-id}")
+
+    @KafkaListener(topics = { "quotes-wordcount-output" }, groupId = "spring-boot-kafka")
     public void consume(ConsumerRecord<String, Long> record) {
         System.out.println("received = " + record.value() + " with key " + record.key());
     }
 }
+
 ```
 
 2. Being in the root folder in spring-ccloud-maven, run `mvn package`
@@ -317,16 +332,13 @@ import reactor.core.publisher.Flux;
 @Component
 public class JsonProducer {
 
-    @Value("${json-topic.name}")
-    private String topic;
-
     private final KafkaTemplate<Integer, Quote> template;
 
     Faker faker;
 
     @Bean
-	NewTopic hobbitAvro() {
-		return TopicBuilder.name(topic).partitions(6).replicas(3).build();
+	NewTopic quotesJson() {
+		return TopicBuilder.name("quotes-json").partitions(6).replicas(3).build();
 	}
 
     // @EventListener(ApplicationStartedEvent.class)
@@ -340,7 +352,7 @@ public class JsonProducer {
         Flux.zip(interval, quotes)
                 .map(it -> {
                     System.out.println("Sending message: " + it.getT2());
-                    return template.send(topic, faker.random().nextInt(42), new Quote(it.getT2()));
+                    return template.send("quotes-json", faker.random().nextInt(42), new Quote(it.getT2()));
                 })
                 .blockLast();
     }
@@ -360,7 +372,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class JsonConsumer {
-    @KafkaListener(topics = "${json-topic.name}", groupId = "${spring.kafka.consumer.group-id}")
+    @KafkaListener(topics = "quotes-json", groupId = "${spring.kafka.consumer.group-id}")
     public void consume(ConsumerRecord<Integer, Quote> record) {
         System.out.println("received json = " + record.value() + " with key " + record.key());
       }
@@ -409,9 +421,6 @@ import reactor.core.publisher.Flux;
 @EnableTransactionManagement
 public class Producer {
 
-    @Value("${topic.name}")
-    private String topic;
-
     private final KafkaTemplate<Integer, String> template;
 
     Faker faker;
@@ -425,17 +434,14 @@ public class Producer {
     @Transactional
     public void generate() {
 
+        String quote;
         faker = Faker.instance();
-        final Flux<Long> interval = Flux.interval(Duration.ofMillis(1_000));
 
-        final Flux<String> quotes = Flux.fromStream(Stream.generate(() -> faker.hobbit().quote()));
-
-        Flux.zip(interval, quotes)
-                .map(it -> {
-                    System.out.println("Sending message: " + it.getT2());
-                    return template.send(topic, faker.random().nextInt(42), it.getT2());
-                })
-                .blockLast();
+        for (int i = 0; i < 5; i++) {
+            quote = faker.hobbit().quote();
+            System.out.printf("Sending quote %d: %s %n", i, quote);
+            template.send("quotes", faker.random().nextInt(42), quote);
+        }        
     }
 }
 ```
